@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Entity validations
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'email', 'createdAt']) 
+          && data.keys().size() == 3
+          && data.id is string 
+          && data.email is string 
+          && data.createdAt is timestamp;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['id', 'role', 'text', 'timestamp'])
+          && data.keys().size() <= 6 // include optional analysis and latencyMs
+          && data.id is string
+          && data.role is string
+          && (data.role == 'user' || data.role == 'model')
+          && data.text is string
+          && data.timestamp is string
+          && (!('latencyMs' in data) || data.latencyMs is int || data.latencyMs is float)
+          // If analysis is present, validate nested integrity
+          && (!('analysis' in data) || (
+               data.analysis is map 
+               && data.analysis.keys().hasAll(['sentiment', 'intent', 'tone', 'confidence'])
+               && data.analysis.keys().size() == 4
+               && data.analysis.sentiment is string
+               && (data.analysis.sentiment == 'positive' || data.analysis.sentiment == 'neutral' || data.analysis.sentiment == 'negative')
+               && data.analysis.intent is string
+               && (data.analysis.intent == 'informational' || data.analysis.intent == 'emotional' || data.analysis.intent == 'transactional')
+               && data.analysis.tone is string
+               && (data.analysis.tone == 'formal' || data.analysis.tone == 'casual' || data.analysis.tone == 'empathetic')
+               && (data.analysis.confidence is float || data.analysis.confidence is int)
+             ));
+    }
+
+    // Match rules for Collections
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if false;
+
+      // Nested collection for chat history messages
+      match /messages/{messageId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidMessage(request.resource.data);
+        allow delete: if isOwner(userId);
+        allow update: if false; // Messages are immutable once written to prevent spoofing historic chat logs
+      }
+    }
+  }
+}

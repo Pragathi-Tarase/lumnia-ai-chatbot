@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "user": {
+      "title": "User Profile",
+      "description": "User account information and profile details.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique user identifier matching their firebase auth UID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's registered email address."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp of when the user profile was created."
+        }
+      },
+      "required": ["id", "email", "createdAt"]
+    },
+    "message": {
+      "title": "Chat Message",
+      "description": "A single chat bubble corresponding to user input or AI output.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the message."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "model"],
+          "description": "The author of the message."
+        },
+        "text": {
+          "type": "string",
+          "description": "The body text content of the message."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server or calendar timestamp of creation."
+        },
+        "analysis": {
+          "type": "object",
+          "description": "Real-time tone and intent telemetry computed for the message.",
+          "properties": {
+            "sentiment": {
+              "type": "string",
+              "enum": ["positive", "neutral", "negative"]
+            },
+            "intent": {
+              "type": "string",
+              "enum": ["informational", "emotional", "transactional"]
+            },
+            "tone": {
+              "type": "string",
+              "enum": ["formal", "casual", "empathetic"]
+            },
+            "confidence": {
+              "type": "number",
+              "description": "Confidence level between 0.0 and 1.0"
+            }
+          },
+          "required": ["sentiment", "intent", "tone", "confidence"]
+        }
+      },
+      "required": ["id", "role", "text", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "Contains overall details of registered accounts."
+    },
+    "/users/{userId}/messages/{messageId}": {
+      "schema": "message",
+      "description": "Unbounded list of chat messages for a user."
+    }
+  }
+}

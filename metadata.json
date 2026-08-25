@@ -1,0 +1,6 @@
+{
+  "name": "Response Analytics Chatbot",
+  "description": "A full-stack chatbot with real-time response analysis, sentiment tracking, intent classification, and tone detection powered by Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

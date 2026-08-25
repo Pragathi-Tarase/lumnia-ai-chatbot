@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Python Virtual Envs & Cache
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Build & Output Artifacts
+build/
+dist/
+coverage/
+
+# Logs & System Files
+*.log
+.DS_Store
+Thumbs.db
+
+# Secrets & Environment Files
+.env*
+backend/.env*
+!.env.example
+!backend/.env.example
