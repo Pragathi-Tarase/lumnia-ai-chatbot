@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
@@ -6,9 +7,14 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 
-# Load environment variables from backend/.env or root .env
+# Ensure backend_dir and project_root are in Python path for Gunicorn & Flask execution
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(backend_dir)
+
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 backend_env = os.path.join(backend_dir, ".env")
 root_env = os.path.join(project_root, ".env")
@@ -57,8 +63,12 @@ def create_app():
         storage_uri="memory://"
     )
 
-    # Register API blueprints first
-    from routes.chat_routes import chat_bp
+    # Register API blueprints first using package-correct import
+    try:
+        from backend.routes.chat_routes import chat_bp
+    except ImportError:
+        from routes.chat_routes import chat_bp
+
     app.register_blueprint(chat_bp)
 
     # Serve built React SPA for all non-API client routes if dist folder exists

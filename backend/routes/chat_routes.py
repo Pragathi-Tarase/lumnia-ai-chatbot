@@ -1,7 +1,11 @@
 import time
 import logging
 from flask import Blueprint, request, jsonify
-from services.gemini_service import GeminiService
+
+try:
+    from backend.services.gemini_service import GeminiService
+except ImportError:
+    from services.gemini_service import GeminiService
 
 logger = logging.getLogger(__name__)
 chat_bp = Blueprint("chat", __name__)
