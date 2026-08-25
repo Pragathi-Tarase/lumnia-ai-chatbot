@@ -105,6 +105,9 @@ export default function AuthScreen() {
         case 'auth/invalid-credential':
           setErrorMessage('Invalid credentials supplied. Check your email/password.');
           break;
+        case 'auth/operation-not-allowed':
+          setErrorMessage('Email/Password authentication is disabled in your Firebase project. Please enable Email/Password in Firebase Console -> Authentication -> Sign-in method.');
+          break;
         default:
           setErrorMessage(err.message || 'An error occurred during authentication.');
       }
@@ -123,7 +126,10 @@ export default function AuthScreen() {
       await ensureUserProfile(result.user.uid, result.user.email || '');
     } catch (err: any) {
       console.error('Google Auth Error: ', err);
-      if (err.code !== 'auth/popup-closed-by-user') {
+      if (err.code === 'auth/operation-not-allowed') {
+        setErrorCode(err.code);
+        setErrorMessage('Google Sign-In is disabled in your Firebase project. Please enable Google in Firebase Console -> Authentication -> Sign-in method.');
+      } else if (err.code !== 'auth/popup-closed-by-user') {
         setErrorCode(err.code || 'auth/google-error');
         setErrorMessage(err.message || 'Unable to authenticate with Google Account.');
       }
