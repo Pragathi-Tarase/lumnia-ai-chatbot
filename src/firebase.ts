@@ -31,14 +31,15 @@ const firebaseConfig = {
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || defaultFirebaseConfig.storageBucket,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || defaultFirebaseConfig.messagingSenderId,
   appId: import.meta.env.VITE_FIREBASE_APP_ID || defaultFirebaseConfig.appId,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || defaultFirebaseConfig.firestoreDatabaseId
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || (defaultFirebaseConfig as any).measurementId
 };
 
 // Initialize Firebase app
 const app = initializeApp(firebaseConfig);
 
-// Export Firestore database with explicit custom database ID configuration as per instructions
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Export Firestore database (use custom DB ID if VITE_FIREBASE_DATABASE_ID is specified, otherwise default)
+const customDbId = import.meta.env.VITE_FIREBASE_DATABASE_ID || (!import.meta.env.VITE_FIREBASE_PROJECT_ID ? defaultFirebaseConfig.firestoreDatabaseId : undefined);
+export const db = customDbId ? getFirestore(app, customDbId) : getFirestore(app);
 
 // Export Auth
 export const auth = getAuth(app);
