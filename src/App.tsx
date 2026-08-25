@@ -99,7 +99,8 @@ export default function App() {
 
       // 2. Fetch processed response and dynamic tone evaluation from backend AI agent proxy
       const startTime = performance.now();
-      const response = await fetch('/api/chat', {
+      const apiBaseUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const response = await fetch(`${apiBaseUrl}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

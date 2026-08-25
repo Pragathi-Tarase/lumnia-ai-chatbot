@@ -8,19 +8,18 @@ Designed with a sleek, dark glassmorphism design system, Lumnia features secure 
 
 ## 🏗️ Tech Stack & System Architecture
 
-Lumnia follows a decoupled, production-ready architecture:
+Lumnia is deployed as a **Single Render Web Service** where Python Flask handles both API endpoints (`/api/*`) and serves the compiled React SPA static assets (`dist/`):
 
 - **Frontend**: React 19 (TypeScript), Vite, TailwindCSS v4, Framer Motion, Lucide Icons.
-- **Backend API**: Python Flask, `google-genai` SDK, `flask-cors`, `flask-limiter`, `python-dotenv`.
-- **AI Intelligence Engine**: Google Gemini API (`gemini-2.5-flash` / `gemini-1.5-flash`).
+- **Backend API & Asset Host**: Python Flask, `google-genai` SDK, `flask-cors`, `flask-limiter`, `gunicorn`.
+- **AI Intelligence Engine**: Google Gemini API (`gemini-3.6-flash`).
 - **Database & Storage**: Firebase Firestore (per-user message isolation & persistence).
 - **Authentication**: Firebase Authentication (Email/Password & Google SSO).
 
 ```
-React Frontend (Port 5173) ──► Proxy (/api) ──► Python Flask Backend (Port 5000)
-       │                                                      │
-       ▼                                                      ▼
-Firebase Auth & Firestore                             Google Gemini AI Engine
+Single Render Web Service (Python Flask)
+├── /api/*   ──────► Gemini AI Service (Python google-genai SDK)
+└── /*       ──────► Built React SPA Static Assets (dist/index.html)
 ```
 
 > **Security Note**: The `GEMINI_API_KEY` resides **exclusively** on the Python Flask backend (`backend/.env`). The React frontend never touches or exposes the Gemini API key.
@@ -60,12 +59,12 @@ Firebase Auth & Firestore                             Google Gemini AI Engine
 ```
 lumnia/
 ├── backend/                  # Python Flask Backend
-│   ├── app.py                # Flask Application Entrypoint, CORS & Limiter setup
+│   ├── app.py                # Flask Server (API Routes & React SPA Asset Host)
 │   ├── routes/
 │   │   └── chat_routes.py    # /api/chat & /api/health Endpoints
 │   ├── services/
 │   │   └── gemini_service.py # Gemini AI & Sequential Analysis Service
-│   ├── requirements.txt      # Python Dependencies
+│   ├── requirements.txt      # Python Dependencies (Flask, Gunicorn, google-genai)
 │   └── .env.example          # Backend Environment Configuration Template
 ├── src/                      # React TypeScript Frontend
 │   ├── components/           # UI Components
@@ -84,15 +83,7 @@ lumnia/
 
 ---
 
-## 🚀 Quick Start Guide
-
-### Prerequisites
-- Node.js (v18+)
-- Python (v3.10+)
-- Google Gemini API Key ([Get API Key](https://aistudio.google.com/))
-- Firebase Project ([Firebase Console](https://console.firebase.google.com/))
-
----
+## 🚀 Local Development Setup
 
 ### 1. Setup Python Flask Backend
 
@@ -120,8 +111,6 @@ cp backend/.env.example backend/.env
 python backend/app.py
 ```
 
-*Production Scaling Note*: For multi-instance production deployments, configure `Flask-Limiter` to use a persistent/shared storage backend like Redis (`storage_uri="redis://localhost:6379"`) instead of the default in-memory storage.
-
 ---
 
 ### 2. Setup React Frontend
@@ -136,7 +125,25 @@ npm install
 npm run dev
 ```
 
-Open your browser at `http://localhost:5173`. The Vite server automatically proxies `/api/*` requests to the Flask backend on port 5000.
+Open your browser at `http://localhost:5173`. During local development, Vite automatically proxies `/api/*` requests to the Flask backend on port 5000.
+
+---
+
+## 🌐 Single Render Web Service Deployment Guide
+
+To deploy Lumnia as a **Single Web Service** on Render:
+
+1. Connect your GitHub repository to [Render](https://render.com/).
+2. Create a new **Web Service** and select the repository.
+3. Configure the service settings:
+   - **Environment**: `Python 3`
+   - **Build Command**: `npm install && npm run build && pip install -r backend/requirements.txt`
+   - **Start Command**: `gunicorn --bind 0.0.0.0:$PORT backend.app:app`
+4. Add **Environment Variables** in the Render Dashboard:
+   - `GEMINI_API_KEY`: Secret Gemini API key from Google AI Studio.
+   - `GEMINI_MODEL`: `gemini-3.6-flash`
+   - `FLASK_ENV`: `production`
+5. Click **Deploy Web Service**. Render will build the React SPA, install Python dependencies, and launch Gunicorn to serve both the frontend UI and Flask API endpoints on a single URL.
 
 ---
 
@@ -144,36 +151,39 @@ Open your browser at `http://localhost:5173`. The Vite server automatically prox
 
 | Variable Name | Location | Required | Description | Example |
 |---|---|---|---|---|
-| `GEMINI_API_KEY` | `backend/.env` | **Yes** | Google Gemini API Key (Backend ONLY) | `AIzaSy...` |
-| `GEMINI_MODEL` | `backend/.env` | No | Gemini Model Variant | `gemini-2.5-flash` |
-| `PORT` | `backend/.env` | No | Backend Port | `5000` |
-| `FLASK_ENV` | `backend/.env` | No | Environment Mode | `development` / `production` |
-| `ALLOWED_ORIGINS` | `backend/.env` | No | CORS Allowed Origins | `http://localhost:5173,http://localhost:3000` |
+| `GEMINI_API_KEY` | `backend/.env` / Render | **Yes** | Google Gemini API Key (Backend ONLY) | `AIzaSy...` |
+| `GEMINI_MODEL` | `backend/.env` / Render | No | Gemini Model Variant | `gemini-3.6-flash` |
+| `PORT` | `backend/.env` / Render | No | Backend Port | `5000` |
+| `FLASK_ENV` | `backend/.env` / Render | No | Environment Mode | `development` / `production` |
+| `ALLOWED_ORIGINS` | `backend/.env` / Render | No | CORS Allowed Origins | `http://localhost:5173,http://localhost:3000` |
 | `VITE_FIREBASE_API_KEY` | `.env` | Yes | Firebase Web API Key | `AIzaSy...` |
 
 ---
 
 ## 🧪 Testing & Verification
 
-1. **Backend Health Check**:
+1. **Backend & SPA Health Check**:
    ```bash
    python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:5000/api/health').read().decode())"
    ```
    *Expected Output*: `{"gemini_configured":true,"status":"healthy"}`
 
-2. **Frontend Production Build**:
+2. **Frontend SPA Root Check**:
+   ```bash
+   python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:5000/').read().decode()[:100])"
+   ```
+   *Expected Output*: `<!doctype html><html lang="en">...`
+
+3. **Frontend Production Build**:
    ```bash
    npm run build
    ```
-
-3. **Backend Rate Limiting & Error Boundaries**:
-   - Handled gracefully with clean JSON error responses (`HTTP 400` / `HTTP 500` / `HTTP 429`) instead of raw stack traces.
 
 ---
 
 ## 📄 Internship Submission Summary
 
-> **Lumnia** is an AI-powered chatbot and conversation intelligence platform that enables users to interact with a conversational assistant while analyzing sentiment, intent, tone, and confidence of AI responses in real time. The platform features secure Firebase Authentication, persistent per-user Firestore chat history, keyword message filtering, dynamic response latency tracking, responsive dark UI styling, and a clean Python Flask REST API integrating the Google Gemini SDK.
+> **Lumnia** is an AI-powered chatbot and conversation intelligence platform that enables users to interact with a conversational assistant while analyzing sentiment, intent, tone, and confidence of AI responses in real time. Deployed as a single Render Web Service, Python Flask serves the compiled React SPA frontend alongside REST API endpoints integrating the Google Gemini SDK with secure Firebase Authentication and Firestore history persistence.
 
 ---
 

@@ -1,14 +1,18 @@
 import os
 import logging
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 
 # Load environment variables from backend/.env or root .env
-backend_env = os.path.join(os.path.dirname(__file__), ".env")
-root_env = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(backend_dir)
+
+backend_env = os.path.join(backend_dir, ".env")
+root_env = os.path.join(project_root, ".env")
+
 if os.path.exists(backend_env):
     load_dotenv(backend_env)
 if os.path.exists(root_env):
@@ -23,12 +27,20 @@ logging.basicConfig(
 logger = logging.getLogger("lumnia_backend")
 
 def create_app():
-    app = Flask(__name__)
+    dist_folder = os.path.join(project_root, "dist")
+    has_dist = os.path.exists(dist_folder)
+
+    if has_dist:
+        app = Flask(__name__, static_folder=dist_folder, static_url_path="")
+        logger.info(f"Serving built React SPA assets from: {dist_folder}")
+    else:
+        app = Flask(__name__)
+        logger.info("Dist directory not found. Flask running in API-only mode.")
 
     # CORS configuration
     allowed_origins = os.environ.get(
         "ALLOWED_ORIGINS",
-        "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000"
+        "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000,*"
     ).split(",")
     
     CORS(
@@ -45,9 +57,20 @@ def create_app():
         storage_uri="memory://"
     )
 
-    # Register blueprints
+    # Register API blueprints first
     from routes.chat_routes import chat_bp
     app.register_blueprint(chat_bp)
+
+    # Serve built React SPA for all non-API client routes if dist folder exists
+    if has_dist:
+        @app.route("/", defaults={"path": ""})
+        @app.route("/<path:path>")
+        def serve_frontend(path):
+            if path and not path.startswith("api/") and os.path.exists(os.path.join(dist_folder, path)):
+                return send_from_directory(dist_folder, path)
+            elif not path.startswith("api/"):
+                return send_from_directory(dist_folder, "index.html")
+            return jsonify({"error": "API route not found."}), 404
 
     @app.errorhandler(404)
     def not_found(error):
@@ -68,5 +91,5 @@ app = create_app()
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("FLASK_ENV") == "development"
-    logger.info(f"Starting Lumnia Python Flask Backend on port {port} (debug={debug_mode})...")
+    logger.info(f"Starting Lumnia Single Web Service on port {port} (debug={debug_mode})...")
     app.run(host="0.0.0.0", port=port, debug=debug_mode)
