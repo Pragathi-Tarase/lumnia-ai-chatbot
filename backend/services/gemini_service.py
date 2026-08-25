@@ -37,8 +37,9 @@ class GeminiService:
 
     def generate_chat_and_analysis(self, message: str, history: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Sequentially generates a chatbot response using Gemini AI, then analyzes the generated reply
-        for sentiment, intent, tone, and confidence score.
+        Generates a chatbot response using Gemini AI and analyzes the response
+        for sentiment, intent, tone, and confidence score. Uses combined single-call
+        optimization for speed and reliability, with fallback to 2-stage execution.
         """
         if not message or not message.strip():
             raise ValueError("Message cannot be empty.")
@@ -46,7 +47,7 @@ class GeminiService:
         client = self._get_client()
         history = history or []
 
-        # Map frontend history format to Gemini SDK contents format
+        # Map history for Gemini API
         formatted_contents = []
         for item in history:
             role = "user" if item.get("role") == "user" else "model"
@@ -62,15 +63,62 @@ class GeminiService:
             "parts": [{"text": message}]
         })
 
-        # Step 1: Generate Chatbot Response
+        from google.genai import types
+
+        # Try Single-Call Combined Generation & Analysis (Optimized Latency)
         try:
-            from google.genai import types
+            system_instruction = (
+                "You are Lumina, a helpful, engaging, intelligent AI assistant. "
+                "Respond to the user's message and provide real-time analysis of your response. "
+                "Return ONLY a valid JSON object matching this structure:\n"
+                "{\n"
+                '  "reply": "<your response text>",\n'
+                '  "analysis": {\n'
+                '    "sentiment": "positive" | "neutral" | "negative",\n'
+                '    "intent": "informational" | "emotional" | "transactional",\n'
+                '    "tone": "formal" | "casual" | "empathetic",\n'
+                '    "confidence": 0.95\n'
+                "  }\n"
+                "}"
+            )
 
             response = client.models.generate_content(
                 model=self.model_name,
                 contents=formatted_contents,
                 config=types.GenerateContentConfig(
-                    system_instruction="You are Lumina, a helpful, engaging, intelligent AI assistant. Provide concise, well-structured, and helpful answers.",
+                    system_instruction=system_instruction,
+                    response_mime_type="application/json"
+                )
+            )
+
+            if response and response.text:
+                raw_text = response.text.strip()
+                if raw_text.startswith("```"):
+                    raw_text = raw_text.split("```")[1]
+                    if raw_text.startswith("json"):
+                        raw_text = raw_text[4:]
+                    raw_text = raw_text.strip()
+
+                parsed = json.loads(raw_text)
+                reply_text = parsed.get("reply", "").strip()
+                analysis_data = parsed.get("analysis", {})
+
+                if reply_text and isinstance(analysis_data, dict):
+                    validated_analysis = self._sanitize_analysis(analysis_data)
+                    return {
+                        "reply": reply_text,
+                        "analysis": validated_analysis
+                    }
+        except Exception as e:
+            logger.warning(f"Single-call combined generation failed or timed out: {e}. Falling back to standard generation.")
+
+        # Fallback: Standard Chat Generation followed by Analysis
+        try:
+            response = client.models.generate_content(
+                model=self.model_name,
+                contents=formatted_contents,
+                config=types.GenerateContentConfig(
+                    system_instruction="You are Lumina, a helpful, engaging, intelligent AI assistant. Provide concise, well-structured, and helpful answers."
                 )
             )
             reply_text = response.text if response and response.text else "I'm sorry, I could not generate a reply at this time."
@@ -84,7 +132,6 @@ class GeminiService:
             else:
                 raise RuntimeError(f"Unable to connect to the AI service: {err_msg}")
 
-        # Step 2: Sequential Analysis of Generated Reply
         analysis = self._analyze_reply(reply_text)
 
         return {
@@ -92,11 +139,33 @@ class GeminiService:
             "analysis": analysis
         }
 
+    def _sanitize_analysis(self, raw_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        sentiment = str(raw_analysis.get("sentiment", "neutral")).lower()
+        if sentiment not in ["positive", "neutral", "negative"]:
+            sentiment = "neutral"
+
+        intent = str(raw_analysis.get("intent", "informational")).lower()
+        if intent not in ["informational", "emotional", "transactional"]:
+            intent = "informational"
+
+        tone = str(raw_analysis.get("tone", "casual")).lower()
+        if tone not in ["formal", "casual", "empathetic"]:
+            tone = "casual"
+
+        try:
+            confidence = float(raw_analysis.get("confidence", 0.85))
+            confidence = max(0.0, min(1.0, confidence))
+        except (ValueError, TypeError):
+            confidence = 0.85
+
+        return {
+            "sentiment": sentiment,
+            "intent": intent,
+            "tone": tone,
+            "confidence": round(confidence, 2)
+        }
+
     def _analyze_reply(self, reply_text: str) -> Dict[str, Any]:
-        """
-        Performs sequential analysis on the generated chatbot response text.
-        Returns sentiment, intent, tone, and confidence score.
-        """
         default_analysis = {
             "sentiment": "neutral",
             "intent": "informational",
@@ -130,7 +199,6 @@ Chatbot Response:
             )
 
             raw_text = analysis_response.text.strip() if analysis_response and analysis_response.text else "{}"
-            # Strip potential markdown formatting if returned
             if raw_text.startswith("```"):
                 raw_text = raw_text.split("```")[1]
                 if raw_text.startswith("json"):
@@ -138,33 +206,7 @@ Chatbot Response:
                 raw_text = raw_text.strip()
 
             parsed = json.loads(raw_text)
-
-            # Validate fields with safe fallbacks
-            sentiment = parsed.get("sentiment", "neutral").lower()
-            if sentiment not in ["positive", "neutral", "negative"]:
-                sentiment = "neutral"
-
-            intent = parsed.get("intent", "informational").lower()
-            if intent not in ["informational", "emotional", "transactional"]:
-                intent = "informational"
-
-            tone = parsed.get("tone", "casual").lower()
-            if tone not in ["formal", "casual", "empathetic"]:
-                tone = "casual"
-
-            try:
-                confidence = float(parsed.get("confidence", 0.85))
-                confidence = max(0.0, min(1.0, confidence))
-            except (ValueError, TypeError):
-                confidence = 0.85
-
-            return {
-                "sentiment": sentiment,
-                "intent": intent,
-                "tone": tone,
-                "confidence": round(confidence, 2)
-            }
-
+            return self._sanitize_analysis(parsed)
         except Exception as e:
             logger.warning(f"Analysis parsing warning, utilizing default fallback: {e}")
             return default_analysis

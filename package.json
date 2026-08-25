@@ -7,7 +7,7 @@
     "dev": "vite",
     "backend": "python backend/app.py",
     "build": "vite build",
-    "start": "python backend/app.py",
+    "start": "gunicorn --bind 0.0.0.0:$PORT --timeout 120 backend.app:app",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },

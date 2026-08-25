@@ -100,46 +100,61 @@ export default function App() {
       // 2. Fetch processed response and dynamic tone evaluation from backend AI agent proxy
       const startTime = performance.now();
       const apiBaseUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-      const response = await fetch(`${apiBaseUrl}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          message: text,
-          history: messages
-        })
-      });
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
 
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || `Server responded with status ${response.status}`);
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: text,
+            history: messages
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errJson = await response.json().catch(() => ({}));
+          throw new Error(errJson.error || `Server responded with status ${response.status}`);
+        }
+
+        const data = await response.json();
+        const endTime = performance.now();
+        const measuredLatency = typeof data.latency_ms === 'number' ? data.latency_ms : Math.round(endTime - startTime);
+
+        // 3. Prepare AI reply doc inside subcollection
+        const botMsgCol = collection(db, 'users', currentUser.uid, 'messages');
+        const botMsgDoc = doc(botMsgCol);
+        const botMessageId = botMsgDoc.id;
+
+        const newBotMessage: Message = {
+          id: botMessageId,
+          role: 'model',
+          text: data.reply,
+          timestamp: new Date().toISOString(),
+          analysis: data.analysis,
+          latencyMs: measuredLatency
+        };
+
+        // Save bot reply securely to Firestore
+        await setDoc(botMsgDoc, newBotMessage);
+
+        // Update local message chain and current telemetry analytics views
+        setMessages((prev) => [...prev, newBotMessage]);
+        setCurrentAnalysis(data.analysis || null);
+
+      } catch (fetchErr: any) {
+        clearTimeout(timeoutId);
+        if (fetchErr.name === 'AbortError') {
+          throw new Error('AI response request timed out. Please try sending your message again.');
+        }
+        throw fetchErr;
       }
-
-      const data = await response.json();
-      const endTime = performance.now();
-      const measuredLatency = typeof data.latency_ms === 'number' ? data.latency_ms : Math.round(endTime - startTime);
-
-      // 3. Prepare AI reply doc inside subcollection
-      const botMsgCol = collection(db, 'users', currentUser.uid, 'messages');
-      const botMsgDoc = doc(botMsgCol);
-      const botMessageId = botMsgDoc.id;
-
-      const newBotMessage: Message = {
-        id: botMessageId,
-        role: 'model',
-        text: data.reply,
-        timestamp: new Date().toISOString(),
-        analysis: data.analysis,
-        latencyMs: measuredLatency
-      };
-
-      // Save bot reply securely to Firestore
-      await setDoc(botMsgDoc, newBotMessage);
-
-      // Update local message chain and current telemetry analytics views
-      setMessages((prev) => [...prev, newBotMessage]);
-      setCurrentAnalysis(data.analysis || null);
 
     } catch (err: any) {
       console.error('Core transaction failed:', err);
