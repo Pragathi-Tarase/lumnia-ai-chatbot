@@ -72,10 +72,14 @@ export default function App() {
   }, []);
 
   const handleSendMessage = async (text: string) => {
-    if (isGenerating || !currentUser) return;
+    if (isGenerating || !currentUser) {
+      console.warn('[FRONTEND_CHAT_WARN] handleSendMessage blocked: isGenerating=', isGenerating, 'currentUser=', !!currentUser);
+      return;
+    }
 
     setError(null);
     setIsGenerating(true);
+    console.log('[FRONTEND_CHAT_STEP_1] CHAT REQUEST STARTED in frontend: text=', text);
 
     try {
       // 1. Prepare user message doc inside subcollection
@@ -90,22 +94,27 @@ export default function App() {
         timestamp: new Date().toISOString()
       };
 
-      // Save user input securely to Firestore
-      await setDoc(msgDoc, newUserMessage);
-
-      // Instantly render local user node bubble
+      // Instantly render local user message bubble
       const updatedMessages = [...messages, newUserMessage];
       setMessages(updatedMessages);
+      console.log('[FRONTEND_CHAT_STEP_2] User message rendered in local UI state');
+
+      // Non-blocking Firestore save for user message
+      setDoc(msgDoc, newUserMessage).catch((fsErr) => {
+        console.warn('[FRONTEND_CHAT_WARN] Firestore user message background save warning:', fsErr);
+      });
 
       // 2. Fetch processed response and dynamic tone evaluation from backend AI agent proxy
       const startTime = performance.now();
       const apiBaseUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const fetchTargetUrl = `${apiBaseUrl}/api/chat`;
+      console.log('[FRONTEND_CHAT_STEP_3] Sending POST request to:', fetchTargetUrl);
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 45000);
 
       try {
-        const response = await fetch(`${apiBaseUrl}/api/chat`, {
+        const response = await fetch(fetchTargetUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -117,15 +126,18 @@ export default function App() {
           signal: controller.signal
         });
         clearTimeout(timeoutId);
+        console.log('[FRONTEND_CHAT_STEP_4] Received HTTP response status:', response.status);
 
         if (!response.ok) {
           const errJson = await response.json().catch(() => ({}));
+          console.error('[FRONTEND_CHAT_ERROR] Backend responded with non-200 status:', response.status, errJson);
           throw new Error(errJson.error || `Server responded with status ${response.status}`);
         }
 
         const data = await response.json();
         const endTime = performance.now();
         const measuredLatency = typeof data.latency_ms === 'number' ? data.latency_ms : Math.round(endTime - startTime);
+        console.log('[FRONTEND_CHAT_STEP_5] Parsed JSON response successfully:', { reply_len: data.reply?.length, latency_ms: measuredLatency });
 
         // 3. Prepare AI reply doc inside subcollection
         const botMsgCol = collection(db, 'users', currentUser.uid, 'messages');
@@ -141,12 +153,15 @@ export default function App() {
           latencyMs: measuredLatency
         };
 
-        // Save bot reply securely to Firestore
-        await setDoc(botMsgDoc, newBotMessage);
-
-        // Update local message chain and current telemetry analytics views
+        // Instantly update local message chain and telemetry analytics views
         setMessages((prev) => [...prev, newBotMessage]);
         setCurrentAnalysis(data.analysis || null);
+        console.log('[FRONTEND_CHAT_STEP_6] Bot reply and analysis panel updated in UI state');
+
+        // Non-blocking Firestore save for bot reply
+        setDoc(botMsgDoc, newBotMessage).catch((fsErr) => {
+          console.warn('[FRONTEND_CHAT_WARN] Firestore bot message background save warning:', fsErr);
+        });
 
       } catch (fetchErr: any) {
         clearTimeout(timeoutId);
@@ -157,10 +172,11 @@ export default function App() {
       }
 
     } catch (err: any) {
-      console.error('Core transaction failed:', err);
+      console.error('[FRONTEND_CHAT_ERROR] Core transaction failed:', err);
       setError(err.message || 'Unable to store message history or obtain AI response telemetry.');
     } finally {
       setIsGenerating(false);
+      console.log('[FRONTEND_CHAT_STEP_7] CHAT REQUEST FINISHED: isGenerating set to false');
     }
   };
 
